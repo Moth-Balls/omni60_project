@@ -43,14 +43,14 @@ To improve the performance of this package, the following optimizations are bein
     ```bash
     mkdir -p ~/ros2_ws/src
     cd ~/ros2_ws/src
-    git clone <repository_url>
+    git clone https://github.com/Moth-Balls/omni60_project.git
     ```
 
 2.  Build the package:
 
     ```bash
     cd ~/ros2_ws
-    colcon build
+    colcon build --symlink-install
     ```
 
 3.  Source the ROS2 environment:
