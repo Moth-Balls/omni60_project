@@ -199,3 +199,72 @@ inline pcl::PointCloud<pcl::PointXYZ>::Ptr project_points(
 
     return points_in_boxes;
 }
+
+inline pcl::PointCloud<pcl::PointXYZ>::Ptr combine_clouds (
+    const rclcpp::Logger& logger,
+    const std::shared_ptr<tf2_ros::Buffer>& tf_buffer,
+    const std::array<pcl::PointCloud<pcl::PointXYZ>::Ptr, 5>& camera_clouds,
+    const std::string& target_velodyne_frame_id)
+{
+    pcl::PointCloud<pcl::PointXYZ>::Ptr combined_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>());
+    combined_cloud_ptr->header.frame_id = target_velodyne_frame_id;
+
+    rclcpp::Time latest_stamp(0, 0, RCL_ROS_TIME);
+
+    for (const auto& single_camera_cloud : camera_clouds) {
+        if (!single_camera_cloud) {
+            continue;
+        }
+        if (single_camera_cloud->empty()) {
+            continue;
+        }
+
+        std_msgs::msg::Header source_ros_header;
+        source_ros_header.frame_id = single_camera_cloud->header.frame_id;
+
+        if (source_ros_header.frame_id.empty()) {
+            RCLCPP_WARN(logger, "Source cloud for combination has an empty frame_id. Skipping this cloud.");
+            continue;
+        }
+        
+        uint64_t stamp_mc = single_camera_cloud->header.stamp; 
+        source_ros_header.stamp = rclcpp::Time(stamp_mc * 1000LL); // PCL stamp is microseconds
+
+        // Convert builtin_interfaces::msg::Time to rclcpp::Time for comparison and nanoseconds()
+        rclcpp::Time current_segment_stamp(source_ros_header.stamp);
+
+        if (current_segment_stamp.nanoseconds() > 0 && current_segment_stamp > latest_stamp) {
+            latest_stamp = current_segment_stamp;
+        }
+
+        pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_segment_ptr;
+
+        if (source_ros_header.frame_id == target_velodyne_frame_id) {
+            transformed_segment_ptr = single_camera_cloud;
+        } else {
+            
+            transformed_segment_ptr = tf_pointcloud(logger, tf_buffer, single_camera_cloud, target_velodyne_frame_id, source_ros_header);
+        }
+
+        if (transformed_segment_ptr && !transformed_segment_ptr->empty()) {
+            *combined_cloud_ptr += *transformed_segment_ptr;
+        } else {
+            RCLCPP_WARN(logger, "Failed to transform or segment was empty for cloud from frame %s to %s. Skipping this segment.",
+                         source_ros_header.frame_id.c_str(), target_velodyne_frame_id.c_str());
+        }
+    }
+
+    if (combined_cloud_ptr->points.empty()) {
+        RCLCPP_DEBUG(logger, "Combined cloud is empty after processing all segments.");
+    }
+
+    combined_cloud_ptr->width = combined_cloud_ptr->points.size();
+    combined_cloud_ptr->height = 1;
+    combined_cloud_ptr->is_dense = true; 
+
+    if (latest_stamp.nanoseconds() > 0) {
+         combined_cloud_ptr->header.stamp = latest_stamp.nanoseconds() / 1000LL; // PCL stamp is microseconds
+    }
+    
+    return combined_cloud_ptr;
+}
