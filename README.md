@@ -27,6 +27,7 @@ To improve the performance of this package, the following optimizations are bein
 *   **GPU Acceleration:** Utilize GPU acceleration for OpenCV image processing tasks using libraries like OpenCL or Vulkan.
 *   **Algorithm Optimization:** More efficient algorithms for color detection and contour finding.
 *   **Segmented Point Cloud Search:** Divide the point cloud into smaller, spatially distinct segments to enable parallel processing of each segment.
+*   **Statistical Outlier Filtering:** Remove outlier points to reduce noise.
 
 ## Dependencies
 
