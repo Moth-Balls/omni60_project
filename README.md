@@ -10,7 +10,7 @@ This ROS2 package implements early fusion object detection using LiDAR point clo
 2.  **Image Data Subscription:** Subscribes to five camera image topics (`/camera0/image_raw`, `/camera1/image_raw`, etc.) to receive image data from each camera.
 3.  **Object Detection:** Uses OpenCV to detect green objects in each camera image and creates bounding boxes around them.
 4.  **Point Cloud Projection:** Transforms the global LiDAR point cloud into each camera's frame, projects the 3D points onto the 2D image plane, and identifies the points that fall within the detected bounding boxes.
-5.  **Point Cloud Publication:** Publishes five separate point clouds to topics named `/camera0/points_of_interest`, `/camera1/points_of_interest`, etc., each containing the 3D points corresponding to the detected objects in the respective camera's field of view.
+5.  **Point Cloud Publication:** Publishes point cloud containing all points touching a detected object on the topic /velodyne/target_points.
 
 ## Performance Analysis
 
@@ -24,7 +24,7 @@ The flame graph above illustrates the CPU time spent in various functions. As yo
 
 To improve the performance of this package, the following optimizations are being considered:
 
-*   **GPU Acceleration:** Utilize GPU acceleration for OpenCV image processing tasks using libraries like CUDA, OpenCL, or Vulkan.
+*   **GPU Acceleration:** Utilize GPU acceleration for OpenCV image processing tasks using libraries like OpenCL or Vulkan.
 *   **Algorithm Optimization:** More efficient algorithms for color detection and contour finding.
 *   **Segmented Point Cloud Search:** Divide the point cloud into smaller, spatially distinct segments to enable parallel processing of each segment.
 
@@ -71,5 +71,5 @@ To improve the performance of this package, the following optimizations are bein
 
 ## Future Improvements
 
-1. I plan on making the package more universal and not relying on hard-coded topic names as well as subscribing to camera_info topics. 
+I plan on making the package more universal and not relying on hard-coded topic names as well as subscribing to camera_info topics. 
 
