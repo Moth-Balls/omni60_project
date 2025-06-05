@@ -33,7 +33,7 @@ include_directories(
 
 add_executable(omni60_project src/main.cpp)
 
-target_link_libraries(omni60_project
+target_link_libraries(omni60_project 
   ${PCL_LIBRARIES}
 )
 
