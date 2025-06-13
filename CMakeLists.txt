@@ -4,7 +4,7 @@ project(omni60_project)
 cmake_policy(SET CMP0144 NEW)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic -O3)
+  add_compile_options(-Wall -Wextra -Wpedantic -O2)
 endif()
 
 # find dependencies
@@ -66,5 +66,9 @@ target_link_libraries(find_center
 # Install target
 install(TARGETS omni60_project find_center
   DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
+)
 
 ament_package()
