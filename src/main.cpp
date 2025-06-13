@@ -18,7 +18,7 @@
 #include "color_detect.hpp"
 #include "cloud.hpp"
 
-// Global Variables
+
 std::array<cv::Mat, 5> original_img_for_projection;
 
 std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -27,13 +27,12 @@ rclcpp::Node::SharedPtr node;
 
 rclcpp::Publisher<PointCloud2>::SharedPtr combined_cloud_publisher_;
 
-std::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> pcl_cloud; // Stores the latest raw LiDAR cloud
-std::mutex pcl_cloud_mutex;                                 // Mutex to protect access to pcl_cloud
+std::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> pcl_cloud;
+std::mutex pcl_cloud_mutex;       
 
-// Bounding Boxes
+
 std::array<std::vector<BoundingBoxData>, 5> detected_bounding_boxes;
 
-// Image Subscriptions
 std::array<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr, 5> image_subscriptions;
 
 std::array<std::string, 5> camera_frame_ids = {"camera0_link",
@@ -42,7 +41,6 @@ std::array<std::string, 5> camera_frame_ids = {"camera0_link",
                                                "camera3_link",
                                                "camera4_link"};
 
-// Store the point clouds from each camera
 std::array<pcl::PointCloud<pcl::PointXYZ>::Ptr, 5> camera_clouds;
 std::array<bool, 5> camera_cloud_ready = {false, false, false, false, false};
 std::mutex camera_clouds_mutex;
@@ -78,11 +76,10 @@ void image_callback(const RosImage::SharedPtr camera_image_msg, int camera_index
             RCLCPP_DEBUG(node->get_logger(), "image_callback for cam %d: Global pcl_cloud not available.", camera_index);
             return;
         }
-        current_lidar_scan = pcl_cloud; // Get a shared_ptr copy
+        current_lidar_scan = pcl_cloud; 
         if(current_lidar_scan->header.stamp > 0){
             lidar_scan_timestamp = rclcpp::Time(current_lidar_scan->header.stamp * 1000LL); 
         } else {
-            // Fallback if lidar PCL stamp is not set, though fromROSMsg should set it.
             lidar_scan_timestamp = rclcpp::Time(camera_image_msg->header.stamp);
         }
     }
@@ -102,14 +99,14 @@ void image_callback(const RosImage::SharedPtr camera_image_msg, int camera_index
     std::string current_camera_frame = camera_frame_ids[camera_index];
 
     if (original_img_for_projection[camera_index].empty() || detected_bounding_boxes[camera_index].empty()) {
-        // Even if no boxes, mark as ready to not block indefinitely if other cameras have data
+       
         std::lock_guard<std::mutex> lock(camera_clouds_mutex);
-        camera_clouds[camera_index] = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(); // Empty cloud
+        camera_clouds[camera_index] = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
         camera_clouds[camera_index]->header.frame_id = current_camera_frame;
         rclcpp::Time image_stamp_for_header(camera_image_msg->header.stamp);
         camera_clouds[camera_index]->header.stamp = image_stamp_for_header.nanoseconds() / 1000ULL;
         camera_cloud_ready[camera_index] = true;
-        // Proceed to check if all are ready
+
     } else {
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in_camera_frame(new pcl::PointCloud<pcl::PointXYZ>);
         try {
@@ -117,7 +114,7 @@ void image_callback(const RosImage::SharedPtr camera_image_msg, int camera_index
                 RCLCPP_WARN(node->get_logger(), "Global PCL cloud has empty frame_id for cam %d.", camera_index);
                 return;
             }
-            // Use the image message stamp for TF lookup, assuming sensors are reasonably synchronized
+
             geometry_msgs::msg::TransformStamped transform_to_cam = tf_buffer_->lookupTransform(
                 current_camera_frame, current_lidar_scan->header.frame_id, 
                 rclcpp::Time(camera_image_msg->header.stamp), rclcpp::Duration::from_seconds(0.2));
@@ -135,12 +132,12 @@ void image_callback(const RosImage::SharedPtr camera_image_msg, int camera_index
         if (points_in_boxes_cam_frame) {
             points_in_boxes_cam_frame->header.frame_id = current_camera_frame;
             rclcpp::Time image_stamp_for_header(camera_image_msg->header.stamp);
-            points_in_boxes_cam_frame->header.stamp = image_stamp_for_header.nanoseconds() / 1000ULL; // PCL stamp is microseconds
+            points_in_boxes_cam_frame->header.stamp = image_stamp_for_header.nanoseconds() / 1000ULL;
         }
         
         std::lock_guard<std::mutex> lock(camera_clouds_mutex);
         camera_clouds[camera_index] = points_in_boxes_cam_frame ? points_in_boxes_cam_frame : std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-        if(!points_in_boxes_cam_frame) { // If project_points returned null, ensure header for empty cloud
+        if(!points_in_boxes_cam_frame) { 
             camera_clouds[camera_index]->header.frame_id = current_camera_frame;
             rclcpp::Time image_stamp_for_header(camera_image_msg->header.stamp);
             camera_clouds[camera_index]->header.stamp = image_stamp_for_header.nanoseconds() / 1000ULL;
@@ -163,35 +160,31 @@ void image_callback(const RosImage::SharedPtr camera_image_msg, int camera_index
             RCLCPP_DEBUG(node->get_logger(), "All camera clouds are ready, combining and publishing...");
             std::string target_velodyne_frame_id_local;
             {
-                std::lock_guard<std::mutex> pcl_lock(pcl_cloud_mutex); // Lock for accessing global pcl_cloud
+                std::lock_guard<std::mutex> pcl_lock(pcl_cloud_mutex); 
                 if (pcl_cloud && !pcl_cloud->header.frame_id.empty()) {
                     target_velodyne_frame_id_local = pcl_cloud->header.frame_id;
                 } else {
                     RCLCPP_WARN(node->get_logger(), "Velodyne cloud not available or frame_id empty, cannot determine target frame for combining.");
-                    // Reset flags to prevent getting stuck if Velodyne cloud is temporarily unavailable
+
                     for (int i = 0; i < 5; ++i) {
                         camera_cloud_ready[i] = false;
-                        // camera_clouds[i].reset(); // Keep potentially valid old data or clear? Let's clear.
+
                         camera_clouds[i] = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
-                        // No need to set header for these reset clouds as they won't be used immediately
                     }
                     return; 
                 }
             }
 
-            // camera_clouds array is already protected by the outer camera_clouds_mutex
             pcl::PointCloud<pcl::PointXYZ>::Ptr combined_pcl_result = combine_clouds(
                 node->get_logger(),
                 tf_buffer_,
-                camera_clouds, // Pass the global array
+                camera_clouds, 
                 target_velodyne_frame_id_local);
 
             if (combined_pcl_result && !combined_pcl_result->empty()) {
                 sensor_msgs::msg::PointCloud2 combined_ros_msg;
                 pcl::toROSMsg(*combined_pcl_result, combined_ros_msg);
 
-                // Use the timestamp from the combined PCL cloud (set by combine_clouds)
-                // or fallback to current time if it's zero.
                 if (combined_pcl_result->header.stamp > 0) {
                     combined_ros_msg.header.stamp = rclcpp::Time(combined_pcl_result->header.stamp * 1000LL);
                 } else {
@@ -204,10 +197,10 @@ void image_callback(const RosImage::SharedPtr camera_image_msg, int camera_index
                 RCLCPP_WARN(node->get_logger(), "Combined cloud is empty or null, not publishing.");
             }
 
-            // Reset flags and clouds for the next cycle
+
             for (int i = 0; i < 5; ++i) {
                 camera_cloud_ready[i] = false;
-                camera_clouds[i].reset(); // Clear the shared_ptr
+                camera_clouds[i].reset();
             }
         } else {
             RCLCPP_DEBUG(node->get_logger(), "Not all camera clouds are ready yet for camera %d.", camera_index);
