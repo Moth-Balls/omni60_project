@@ -9,6 +9,7 @@
 #include <pcl/point_types.h>
 #include <pcl/filters/crop_box.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/filter.h>
 #include <pcl_ros/transforms.hpp>
 #include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
@@ -71,7 +72,7 @@ inline std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> filter_cloud(const rclcp
     for (size_t i = 0; i < 5; ++i)
     {
         filtered_clouds[i].reset(new pcl::PointCloud<pcl::PointXYZ>);
-        filtered_clouds[i]->header = input_cloud->header; // Copy header
+        filtered_clouds[i]->header = input_cloud->header;
 
         float min_angle_rad = angle_ranges[i].first * M_PI / 180.0f;
         float max_angle_rad = angle_ranges[i].second * M_PI / 180.0f;
@@ -98,15 +99,15 @@ inline std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> filter_cloud(const rclcp
 
 
 inline pcl::PointCloud<pcl::PointXYZ>::Ptr project_points(
-    cv::Mat& img, // Input image, will be modified by drawing points
-    const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, // Input PCL cloud, assumed to be in camera frame
+    cv::Mat& img, 
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
     const std::vector<BoundingBoxData>& boxes) {
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr points_in_boxes(new pcl::PointCloud<pcl::PointXYZ>);
 
-    // If the input cloud is null or empty, return an empty cloud
+    // if the input cloud is null or empty, return an empty cloud
     if (!cloud || cloud->empty()) {
-        if (cloud) { // If cloud exists but is empty, copy its header
+        if (cloud) {
              points_in_boxes->header = cloud->header;
         }
         points_in_boxes->width = 0;
@@ -115,84 +116,105 @@ inline pcl::PointCloud<pcl::PointXYZ>::Ptr project_points(
         return points_in_boxes;
     }
 
-    // Copy header from the input cloud to the output cloud
+   
     points_in_boxes->header = cloud->header;
 
-    // Camera intrinsic parameters (ensure these match your camera)
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_no_nan(new pcl::PointCloud<pcl::PointXYZ>);
+    std::vector<int> indices; // To store indices of valid points
+    pcl::removeNaNFromPointCloud(*cloud, *cloud_no_nan, indices);
+
+    // if all points were NaN/Inf, return an empty cloud
+    if (cloud_no_nan->empty()) {
+        points_in_boxes->width = 0;
+        points_in_boxes->height = 1;
+        points_in_boxes->is_dense = true;
+        return points_in_boxes;
+    }
+ 
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_stat_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+    sor.setInputCloud(cloud_no_nan);
+    sor.setMeanK(10);
+    sor.setStddevMulThresh(0.4);
+    sor.filter(*cloud_stat_filtered);
+
+    // if all points filtered out return empty
+    if (cloud_stat_filtered->empty()) {
+        points_in_boxes->width = 0;
+        points_in_boxes->height = 1;
+        points_in_boxes->is_dense = true;
+        return points_in_boxes;
+    }
+
     const float fx = 241.4268569946289f;
     const float fy = 241.42684936523438f;
     const float cx = 376.0f;
     const float cy = 240.0f;
 
-    // Image dimensions for checking bounds of projected points
     const float img_width = 752.0f;
     const float img_height = 480.0f;
 
-    // Intrinsic matrix K
+    // intrinsic camera data
     Eigen::Matrix3f K;
     K << fx, 0.0f, cx,
          0.0f, fy,   cy,
          0.0f, 0.0f, 1.0f;
 
-    // Transformation from camera_link to optical frame
+
     Eigen::Matrix3f cam_to_optical;
     cam_to_optical <<
         0.0f, -1.0f,  0.0f,
         0.0f,  0.0f, -1.0f,
         1.0f,  0.0f,  0.0f;
 
-    // Convert PCL cloud to Eigen matrix (points are in camera frame)
-    Eigen::MatrixXf points_cam(3, cloud->size());
-    for (size_t i = 0; i < cloud->size(); ++i) {
-        points_cam(0, i) = cloud->points[i].x;
-        points_cam(1, i) = cloud->points[i].y;
-        points_cam(2, i) = cloud->points[i].z;
+    Eigen::MatrixXf points_cam_filtered(3, cloud_stat_filtered->size());
+    for (size_t i = 0; i < cloud_stat_filtered->size(); ++i) {
+        points_cam_filtered(0, i) = cloud_stat_filtered->points[i].x;
+        points_cam_filtered(1, i) = cloud_stat_filtered->points[i].y;
+        points_cam_filtered(2, i) = cloud_stat_filtered->points[i].z;
     }
 
-    // Transform points to the camera optical frame
-    Eigen::MatrixXf points_optical = cam_to_optical * points_cam;
+    // transform points to the camera optical frame
+    Eigen::MatrixXf points_optical_filtered = cam_to_optical * points_cam_filtered;
 
-    // Project points to the image plane (homogeneous coordinates)
-    Eigen::MatrixXf projected_coords = K * points_optical;
 
-    for (size_t i = 0; i < cloud->size(); ++i) {
-        // Depth in the camera optical frame (Z)
-        float Z = points_optical(2, i);
+    Eigen::MatrixXf projected_coords_filtered = K * points_optical_filtered;
 
-        // Point must be in front of the camera
+    for (size_t i = 0; i < cloud_stat_filtered->size(); ++i) {
+
+        float Z = points_optical_filtered(2, i);
+
+        // point must be in front of the camera
         if (Z <= 1e-3f) {
             continue;
         }
 
-        // Calculate 2D image coordinates (u, v)
-        float u = projected_coords(0, i) / Z;
-        float v = projected_coords(1, i) / Z;
+        // calculate 2D image coordinates (u, v)
+        float u = projected_coords_filtered(0, i) / Z;
+        float v = projected_coords_filtered(1, i) / Z;
 
         bool in_box = false;
         if (!boxes.empty()) {
             for (const auto& box_data : boxes) {
                 const cv::Rect& box = box_data.rect;
-                // Check if the projected point (u,v) is inside the current bounding box
+                // check if the projected point (u,v) is inside the current bounding box
                 if (u >= box.x && u < (box.x + box.width) &&
                     v >= box.y && v < (box.y + box.height)) {
                     in_box = true;
-                    break; // Point is in at least one box
+                    break; 
                 }
             }
         }
 
         if (in_box) {
-            // If the point falls within any bounding box, store its original 3D coordinates
-            points_in_boxes->points.push_back(cloud->points[i]);
+            points_in_boxes->points.push_back(cloud_stat_filtered->points[i]);
 
-            // Also, draw the point on the image if it's within image boundaries
             if (u >= 0 && u < img_width && v >= 0 && v < img_height) {
                 cv::circle(img, cv::Point(static_cast<int>(u), static_cast<int>(v)), 2, cv::Scalar(0, 255, 0), -1);
             }
         }
     }
 
-    // Set the width and height for the output PCL cloud
     points_in_boxes->width = points_in_boxes->points.size();
     points_in_boxes->height = 1;
     points_in_boxes->is_dense = true;
@@ -228,9 +250,8 @@ inline pcl::PointCloud<pcl::PointXYZ>::Ptr combine_clouds (
         }
         
         uint64_t stamp_mc = single_camera_cloud->header.stamp; 
-        source_ros_header.stamp = rclcpp::Time(stamp_mc * 1000LL); // PCL stamp is microseconds
+        source_ros_header.stamp = rclcpp::Time(stamp_mc * 1000LL);
 
-        // Convert builtin_interfaces::msg::Time to rclcpp::Time for comparison and nanoseconds()
         rclcpp::Time current_segment_stamp(source_ros_header.stamp);
 
         if (current_segment_stamp.nanoseconds() > 0 && current_segment_stamp > latest_stamp) {
@@ -263,7 +284,7 @@ inline pcl::PointCloud<pcl::PointXYZ>::Ptr combine_clouds (
     combined_cloud_ptr->is_dense = true; 
 
     if (latest_stamp.nanoseconds() > 0) {
-         combined_cloud_ptr->header.stamp = latest_stamp.nanoseconds() / 1000LL; // PCL stamp is microseconds
+         combined_cloud_ptr->header.stamp = latest_stamp.nanoseconds() / 1000LL; 
     }
     
     return combined_cloud_ptr;
