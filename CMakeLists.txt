@@ -50,8 +50,21 @@ ament_target_dependencies(omni60_project
   pcl_ros 
 )
 
+add_executable(find_center src/find_center.cpp)
+
+target_link_libraries(find_center
+ ${PCL_LIBRARIES})
+
+ ament_target_dependencies(find_center
+  rclcpp
+  sensor_msgs
+  message_filters
+  geometry_msgs
+  pcl_ros 
+)
+
 # Install target
-install(TARGETS omni60_project
+install(TARGETS omni60_project find_center
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
