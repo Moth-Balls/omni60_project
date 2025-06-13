@@ -2,7 +2,7 @@
 
 ## Description
 
-This ROS2 package implements early fusion object detection using LiDAR point clouds and camera images from the [Occam Omni60 360 camera](https://docs.clearpathrobotics.com/docs_robots/accessories/sensors/cameras/occam_omni_60/). This package currently looks for all green objects within camera view and matches them to 3D lidar points. The goal of this package is for testing early fusion for plant detection in a agricultural setting. The package was tested using Gazebo Harmonic and ROS2 Jazzy.
+This ROS2 package implements early fusion object detection using LiDAR point clouds and camera images from the [Occam Omni60 360 camera](https://docs.clearpathrobotics.com/docs_robots/accessories/sensors/cameras/occam_omni_60/). This package currently looks for all green objects within camera view and matches them to 3D lidar points. The goal of this package is for testing early fusion for plant detection in an agricultural setting. The package was tested using Gazebo Harmonic and ROS2 Jazzy with my [Husky A200 simulator](https://github.com/Moth-Balls/husky_kinova_sim).
 
 ## Functionality
 
@@ -10,7 +10,9 @@ This ROS2 package implements early fusion object detection using LiDAR point clo
 2.  **Image Data Subscription:** Subscribes to five camera image topics (`/camera0/image_raw`, `/camera1/image_raw`, etc.) to receive image data from each camera.
 3.  **Object Detection:** Uses OpenCV to detect green objects in each camera image and creates bounding boxes around them.
 4.  **Point Cloud Projection:** Transforms the global LiDAR point cloud into each camera's frame, projects the 3D points onto the 2D image plane, and identifies the points that fall within the detected bounding boxes.
-5.  **Point Cloud Publication:** Publishes point cloud containing all points touching a detected object on the topic /velodyne/target_points.
+5.  **Point Cloud Publishing:** Publishes point cloud containing all points touching a detected object on the topic `/velodyne/target_points`.
+
+6. **Find Center:** Finds center of `/velodyne/target_points` clustered points and publishes points at center of the clusters on `/center_points`.
 
 ## Performance Analysis
 
@@ -27,7 +29,6 @@ To improve the performance of this package, the following optimizations are bein
 *   **GPU Acceleration:** Utilize GPU acceleration for OpenCV image processing tasks using libraries like OpenCL or Vulkan.
 *   **Algorithm Optimization:** More efficient algorithms for color detection and contour finding.
 *   **Segmented Point Cloud Search:** Divide the point cloud into smaller, spatially distinct segments to enable parallel processing of each segment.
-*   **Statistical Outlier Filtering:** Remove outlier points to reduce noise.
 
 ## Dependencies
 
@@ -57,19 +58,16 @@ To improve the performance of this package, the following optimizations are bein
 3.  Source the ROS2 environment:
 
     ```bash
-    . install/setup.bash
+    install/setup.bash
     ```
 
 ## Usage
 
-1.  Launch the ROS2 node:
+1.  Launch the package
 
     ```bash
-    ros2 run omni60_project omni60_node
+    ros2 launch omni60_project omni60.launch.py
     ```
-
-2.  View the published point clouds on the `/camera0/points_of_interest`, `/camera1/points_of_interest`, etc. topics using a tool like RViz.
-
 ## Future Improvements
 
 I plan on making the package more universal and not relying on hard-coded topic names as well as subscribing to camera_info topics. 
